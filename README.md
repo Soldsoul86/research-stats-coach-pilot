@@ -1,6 +1,6 @@
 # Research Stats Coach — MA/MSc Psychology student pilot
 
-**Status:** Local standalone teaching prototype (22 October 2026). Not commercially launched, validated by student users, or AI powered.
+**Status:** Free, deployed teaching pilot (version 0.2, 22 October 2026). Not commercially validated by student users or AI powered. **Live:** https://research-stats-coach-pilot.onrender.com/ .
 
 ## First use
 
@@ -18,13 +18,13 @@ You can also serve the source from this directory: `python -m http.server 8000` 
 - Data type inference and explicit variable selection.
 - Pearson product-moment correlation: r, t statistic, two-sided p, 95% Fisher-transformed CI, sample count and excluded rows.
 - Two-independent-groups Welch t-test: group means and SD, mean difference, Welch degrees of freedom, two-sided p and 95% CI.
-- Scatterplot/dot-plot, assumption review, reproducible result text, Markdown export, and five method-specific viva exercises.
+- Scatterplot/dot-plot, descriptive assumption screens plus human-review checklist, readable result interpretation, Pearson r² and Hedges g, reproducible result text, Markdown export, and five method-specific viva exercises.
 - Transparent keyboard-free keyword method suggestion. **This is not an LLM or AI reasoning engine.**
 - Synthetic 72-row psychology dataset clearly marked as synthetic.
 
 ## Not implemented
 
-No SPSS .sav, .omv, XLSX, regression, nonparametric alternatives, ANOVA, paired tests, Cronbach's alpha, confirmatory normality tests, sampling validation, healthcare/clinical interpretation, authenticated users, analytics, feedback intake, payments, or hosting. No automatic correct-test guarantee. No claim that its current experience outperforms ChatGPT or jamovi.
+No SPSS .sav, .omv, XLSX, regression, nonparametric alternatives, ANOVA, paired tests, Cronbach's alpha, confirmatory normality tests, sampling validation, healthcare/clinical interpretation, authenticated users, analytics, built-in feedback intake, or payments. No automatic correct-test guarantee. No claim that its current experience outperforms ChatGPT or jamovi.
 
 ## Privacy and safety
 
@@ -34,11 +34,11 @@ A teaching tool cannot establish independence, random sampling, valid constructs
 
 ## Reproduce statistical checks
 
-`node tests/run_tests.js` — 10 unit/integration-level checks.
+`node tests/run_tests.js` — 15 unit/integration-level checks, including effect sizes and conservative p-value language.
 
-`python tests/scipy_crosscheck.py` — 100 deterministic randomized numerical comparisons to SciPy (50 Pearson, 50 Welch). Requires SciPy and NumPy, only for verification; these libraries are **not** needed for the web app.
+`python tests/scipy_crosscheck.py` — 100 deterministic randomized numerical comparisons to SciPy (50 Pearson including r², 50 Welch including Hedges g). Requires SciPy and NumPy, only for verification; these libraries are **not** needed for the web app.
 
-`python tests/browser_test.py` — optional interactive Chromium smoke test. Was not executable in the current authoring environment because navigation is blocked by the container's administrator policy; do not mark browser QA complete until it runs in an unrestricted test environment.
+`python tests/browser_inline_test.py` — browser interaction smoke tests in 390px and 1280px viewports via offline page injection. Direct local URL navigation remains blocked by the authoring environment; public URL end-to-end QA is still outstanding.
 
 ## Commercial experiment
 
@@ -54,23 +54,16 @@ A teaching tool cannot establish independence, random sampling, valid constructs
 
 ## Files
 
-- `index.html`, `styles.css`, `bundle.js`: deployable browser-only website. Bundled JavaScript combines the tested statistics engine, synthetic sample, and interface logic.
+- `index.html`, `styles.css`, `statistics.js`, `demo-data.js`, `app.js`, `bundle.js`: source and bundled assets for the deployed static website.
 - `standalone.html`: same browser-local experience in one file.
 - `fixtures/sample_psychology.csv`: synthetic demo data.
-- The full original source and verification tests are retained in the downloadable pilot source archive; tests were rerun successfully on October 22, 2026.
+- `tests/run_tests.js`, `tests/scipy_oracle.json`, `tests/scipy_crosscheck.py`: independent numerical tests.
 - `NEXT_7_DAYS.md`: channel and revenue experiment.
 
-## Version 0.2 — clearer research interpretation (22 October 2026)
+## 0.2 change log (22 October 2026)
 
-Deployed at https://research-stats-coach-pilot.onrender.com/ . The original shared URL is unchanged.
-
-- Adds a separate, plain-language conclusion which never treats p ≥ .05 as proof of no association or equivalence.
-- Reports Pearson r² as a descriptive percentage of shared linear variation, alongside Pearson r.
-- Reports small-sample corrected Hedges’ g (pooled standard deviation) for the two-group Welch test; warns about variance differences.
-- Distinguishes descriptive CSV screens (missingness, skew, IQR flags, group sizes) from critical human checks (independence, linearity, study design, sampling, validity).
-- Includes explanations, effect sizes, and limitation flags in exported reports and viva notes.
-- Retains browser-local CSV processing, free access, and no third-party analytics or AI backend.
-
-Validation performed locally: 15 JavaScript tests, 100 randomized comparisons to SciPy (including Hedges g), and browser smoke tests at 390px/1280px using an offline page-injection approach because local URL navigation is blocked by the test environment. These checks do not establish validity for real research, and normal public-site end-to-end QA remains outstanding.
-
-**Academic caution:** The alpha .05 threshold and effect size interpretation labels are teaching examples, not automatic research decisions. Confirm suitable tests with a supervisor. Never submit synthetic example observations as real research.
+- Plain-language conclusions distinguish statistical evidence from practical meaning, and do not equate non-significant with no effect.
+- Pearson r² and exact small-sample corrected Hedges g are now calculated and explained.
+- Assumption review explicitly separates descriptive screens, flagged observations and research-design checks requiring human judgment.
+- APA paragraph, viva questions, and exported Markdown updated accordingly.
+- Same public website URL; previous visitors can refresh to see the changes.
