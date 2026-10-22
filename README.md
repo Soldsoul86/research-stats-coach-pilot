@@ -59,3 +59,18 @@ A teaching tool cannot establish independence, random sampling, valid constructs
 - `fixtures/sample_psychology.csv`: synthetic demo data.
 - The full original source and verification tests are retained in the downloadable pilot source archive; tests were rerun successfully on October 22, 2026.
 - `NEXT_7_DAYS.md`: channel and revenue experiment.
+
+## Version 0.2 — clearer research interpretation (22 October 2026)
+
+Deployed at https://research-stats-coach-pilot.onrender.com/ . The original shared URL is unchanged.
+
+- Adds a separate, plain-language conclusion which never treats p ≥ .05 as proof of no association or equivalence.
+- Reports Pearson r² as a descriptive percentage of shared linear variation, alongside Pearson r.
+- Reports small-sample corrected Hedges’ g (pooled standard deviation) for the two-group Welch test; warns about variance differences.
+- Distinguishes descriptive CSV screens (missingness, skew, IQR flags, group sizes) from critical human checks (independence, linearity, study design, sampling, validity).
+- Includes explanations, effect sizes, and limitation flags in exported reports and viva notes.
+- Retains browser-local CSV processing, free access, and no third-party analytics or AI backend.
+
+Validation performed locally: 15 JavaScript tests, 100 randomized comparisons to SciPy (including Hedges g), and browser smoke tests at 390px/1280px using an offline page-injection approach because local URL navigation is blocked by the test environment. These checks do not establish validity for real research, and normal public-site end-to-end QA remains outstanding.
+
+**Academic caution:** The alpha .05 threshold and effect size interpretation labels are teaching examples, not automatic research decisions. Confirm suitable tests with a supervisor. Never submit synthetic example observations as real research.

@@ -107,6 +107,67 @@
     const n=values.length;const m3=values.reduce((p,x)=>p+Math.pow((x-mu)/s,3),0);
     return (n/((n-1)*(n-2)))*m3; // adjusted Fisher skewness using sample SD
   }
+  function quantile(sorted, fraction) {
+    const position=(sorted.length-1)*fraction, low=Math.floor(position), high=Math.ceil(position);
+    return sorted[low]+(sorted[high]-sorted[low])*(position-low);
+  }
+  // Exploratory screening, NOT an assumption-validation test.
+  function outlierCount(values) {
+    if(values.length<8)return null;
+    const sorted=[...values].sort((a,b)=>a-b),q1=quantile(sorted,.25),q3=quantile(sorted,.75),iqr=q3-q1;
+    if(!(iqr>0))return null;
+    return values.filter(v=>v<q1-1.5*iqr||v>q3+1.5*iqr).length;
+  }
+  function roughMagnitude(value,kind) {
+    const v=Math.abs(value);
+    // Context-dependent teaching conventions; never clinical or substantive cutoffs.
+    if(kind==='r')return v<.1?'near zero':v<.3?'small':v<.5?'moderate':'large';
+    return v<.2?'near zero':v<.5?'small':v<.8?'moderate':'large';
+  }
+  function sharedPercent(rSquared) {
+    const percent=100*rSquared;
+    if(percent<.001)return '< 0.001%';
+    if(percent<.01)return percent.toFixed(3)+'%';
+    if(percent<.1)return percent.toFixed(2)+'%';
+    return percent.toFixed(1)+'%';
+  }
+  function plainConclusion(r) {
+    const significant=r.p<.05;
+    if(r.method==='pearson'){
+      const size=roughMagnitude(r.r,'r'),direction=r.r>=0?'positive':'negative';
+      return {
+        heading:significant?'Evidence of a linear association':'Insufficient evidence of a linear association',
+        summary:`${size==='near zero'?'The observed linear relationship is close to zero.':`The sample shows a ${size} ${direction} linear relationship between ${r.x} and ${r.y}.`} ${significant?'At the conventional 5% threshold, the data provide evidence against zero population correlation.':'At the conventional 5% threshold, the data do not provide enough evidence against zero population correlation.'} This does not prove ${significant?'causation':'there is no relationship'}.`,
+        effect:`Pearson’s r = ${fmtStat(r.r)} is already an effect-size estimate. In this sample r² corresponds to ${sharedPercent(r.rSquared)} shared linear variation, not a causal attribution.`,
+        caution:'The conventional effect-size labels are only rough guides. Use the confidence interval, measurement scale and research context before deciding what matters.'
+      };
+    }
+    const [a,b]=r.groups, winner=r.diff>0?a.name:r.diff<0?b.name:null;
+    return {
+      heading:significant?'Evidence of a difference between groups':'Insufficient evidence of a difference between groups',
+      summary:`${winner?`${winner} has the higher sample mean. The estimated difference (${a.name} − ${b.name}) is ${fmtStat(r.diff)} points.`:'The sample group means are equal.'} ${significant?'At the conventional 5% threshold, the data provide evidence against equal population means.':'At the conventional 5% threshold, the data do not provide enough evidence against equal population means.'} This does not prove ${significant?'a causal effect':'the groups are equivalent'}.`,
+      effect:`Hedges’ g = ${fmtStat(r.hedgesG)} (${roughMagnitude(r.hedgesG,'g')} by a rough teaching convention). It expresses the difference in pooled SD units with small-sample correction.`,
+      caution:'Because Welch allows unequal group variances, a pooled-SD effect size may not be ideal if the dispersions differ. Also examine the raw mean difference, interval, and construct meaning.'
+    };
+  }
+  function assumptionChecks(r) {
+    const checks=[{status:r.excluded?'inspect':'observed',label:'Missing data',detail:`${r.n} complete observations; ${r.excluded} excluded for missing selected values. This is a count, not proof that missingness is harmless.`}];
+    if(r.method==='pearson'){
+      const X=r.points.map(p=>p.x),Y=r.points.map(p=>p.y), outX=outlierCount(X),outY=outlierCount(Y), skewX=diagnosticSkew(X),skewY=diagnosticSkew(Y);
+      checks.push({status:(outX||outY)?'inspect':'observed',label:'Outlier screening (descriptive)',detail:(outX||outY)?`Tukey IQR fences flag ${outX||0} values in ${r.x} and ${outY||0} values in ${r.y} for inspection.`:'No marginal Tukey IQR flags found (or data too limited to screen). Influential paired observations may still exist.'});
+      checks.push({status:[skewX,skewY].some(v=>v!==null&&Math.abs(v)>1)?'inspect':'observed',label:'Skew screening (descriptive)',detail:[skewX,skewY].some(v=>v!==null&&Math.abs(v)>1)?'At least one variable has |adjusted skew| > 1. Inspect distributions; this is not a formal normality test.':'No strong marginal skew flagged by the |skew| > 1 heuristic. Bivariate normality is not established.'});
+      checks.push({status:'review',label:'Linearity and influential cases',detail:'Inspect the scatterplot for curvature, clusters, influential points and nonconstant spread. This is not established automatically.'});
+      checks.push({status:'review',label:'Independence and valid measurement',detail:'Confirm that rows represent independent units, variables represent meaningful quantitative scales, and the sampling process is appropriate.'});
+    }else{
+      const [a,b]=r.groups,outA=outlierCount(a.values),outB=outlierCount(b.values),skewA=diagnosticSkew(a.values),skewB=diagnosticSkew(b.values);
+      checks.push({status:Math.min(a.n,b.n)<15?'inspect':'observed',label:'Group sizes',detail:`${a.name}: ${a.n}; ${b.name}: ${b.n}. ${Math.min(a.n,b.n)<15?'At least one group has fewer than 15 observations; examine robustness carefully.':'Both groups have at least 15 observations; this alone cannot validate the test.'}`});
+      checks.push({status:(outA||outB)?'inspect':'observed',label:'Outlier screening (descriptive)',detail:(outA||outB)?`IQR fences flag ${outA||0} values in ${a.name} and ${outB||0} in ${b.name} for inspection.`:'No marginal Tukey IQR flags found (or data too limited to screen). Inspect the dot plot regardless.'});
+      checks.push({status:[skewA,skewB].some(v=>v!==null&&Math.abs(v)>1)?'inspect':'observed',label:'Skew screening (descriptive)',detail:[skewA,skewB].some(v=>v!==null&&Math.abs(v)>1)?'At least one group has |adjusted skew| > 1; check sensitivity. This is not a formal normality test.':'No strong skew flagged by the |skew| > 1 heuristic. Formal normality is not established.'});
+      checks.push({status:'review',label:'Independent groups, not paired',detail:'Confirm participants are not repeated across the two groups. Before/after measurements on the same people require a paired approach.'});
+      checks.push({status:'review',label:'Study design and practical interpretation',detail:'Confirm scale validity, sampling, confounders and any causal claims. Welch allows unequal variance, but pooled-SD Hedges’ g needs context.'});
+    }
+    return checks;
+  }
   function pearson(data,xName,yName) {
     if(xName===yName)throw new Error('Choose two different quantitative variables.');
     const valid = data.rows.map(r=>({x:numeric(r[xName]),y:numeric(r[yName])})).filter(v=>v.x!==null&&v.y!==null);
@@ -129,7 +190,7 @@
     if(n<30) notes.push('Small sample: interpret p-values and interval width cautiously.');
     notes.push('Inspect the scatterplot for nonlinearity and influential observations. Pearson measures linear association, not causation.');
     notes.push('The pilot does not establish random sampling, independence, construct validity, or a formal normality test.');
-    return {method:'pearson',x:xName,y:yName,n,excluded:data.rows.length-n,r,t,df,p,ci,notes,points:valid};
+    return {method:'pearson',x:xName,y:yName,n,excluded:data.rows.length-n,r,rSquared:r*r,t,df,p,ci,notes,points:valid};
   }
   function welch(data,groupName,outcomeName) {
     if(groupName===outcomeName)throw new Error('Choose a category for groups and a different quantitative outcome variable.');
@@ -149,39 +210,49 @@
     if((diagnosticSkew(a)!==null&&Math.abs(diagnosticSkew(a))>1)||(diagnosticSkew(b)!==null&&Math.abs(diagnosticSkew(b))>1))notes.push('At least one group is skewed by a simple descriptive screen. Inspect a plot and consider sensitivity analysis.');
     notes.push('Welch’s test does not assume equal group variances, but observations still need to be independent.');
     notes.push('Use this only for independent groups; it is not the correct test for paired before/after observations. The pilot cannot validate study design.');
-    return {method:'welch',group:groupName,outcome:outcomeName,groups:[{name:names[0],n:n1,mean:m1,sd:Math.sqrt(v1),values:a},{name:names[1],n:n2,mean:m2,sd:Math.sqrt(v2),values:b}],n:n1+n2,excluded:data.rows.length-(n1+n2),diff,se,t,df,p,ci,notes};
+    const pooledDf=n1+n2-2, pooledSD=Math.sqrt(((n1-1)*v1+(n2-1)*v2)/pooledDf);
+    // Exact Hedges small-sample correction for pooled-SD Cohen's d.
+    const J=Math.exp(logGamma(pooledDf/2)-Math.log(pooledDf/2)/2-logGamma((pooledDf-1)/2));
+    const hedgesG=pooledSD>0?J*diff/pooledSD:NaN;
+    return {method:'welch',group:groupName,outcome:outcomeName,groups:[{name:names[0],n:n1,mean:m1,sd:Math.sqrt(v1),values:a},{name:names[1],n:n2,mean:m2,sd:Math.sqrt(v2),values:b}],n:n1+n2,excluded:data.rows.length-(n1+n2),diff,se,t,df,p,ci,hedgesG,pooledSD,notes};
   }
   function fmtP(p){return p<0.001?'< .001':`= ${p.toFixed(3).replace(/^0\./,'.')}`;}
   function fmtStat(v, digits=2){return (Math.abs(v)<0.000000001?0:v).toFixed(digits).replace(/^-0\./,'-0.').replace(/^0\./,'.');}
   function apa(result){
-    if(result.method==='pearson')return `A Pearson correlation between ${result.x} and ${result.y} was ${result.r>=0?'positive':'negative'}, r(${result.df}) = ${fmtStat(result.r,2)}, p ${fmtP(result.p)}, 95% CI [${fmtStat(result.ci[0],2)}, ${fmtStat(result.ci[1],2)}], n = ${result.n}. This association does not establish causation.`;
+    if(result.method==='pearson')return `A Pearson correlation between ${result.x} and ${result.y} was ${roughMagnitude(result.r,'r')==='near zero'?'approximately zero':result.r>=0?'positive':'negative'}, r(${result.df}) = ${fmtStat(result.r,2)}, p ${fmtP(result.p)}, 95% CI [${fmtStat(result.ci[0],2)}, ${fmtStat(result.ci[1],2)}], n = ${result.n}. This association does not establish causation.`;
     const [a,b]=result.groups;
-    return `An independent-samples Welch t-test compared ${result.outcome} between ${a.name} (M = ${fmtStat(a.mean)}, SD = ${fmtStat(a.sd)}, n = ${a.n}) and ${b.name} (M = ${fmtStat(b.mean)}, SD = ${fmtStat(b.sd)}, n = ${b.n}). The mean difference (${a.name} − ${b.name}) was ${fmtStat(result.diff)}, t(${result.df.toFixed(2)}) = ${fmtStat(result.t)}, p ${fmtP(result.p)}, 95% CI [${fmtStat(result.ci[0])}, ${fmtStat(result.ci[1])}].`;
+    return `An independent-samples Welch t-test compared ${result.outcome} between ${a.name} (M = ${fmtStat(a.mean)}, SD = ${fmtStat(a.sd)}, n = ${a.n}) and ${b.name} (M = ${fmtStat(b.mean)}, SD = ${fmtStat(b.sd)}, n = ${b.n}). The mean difference (${a.name} − ${b.name}) was ${fmtStat(result.diff)}, t(${result.df.toFixed(2)}) = ${fmtStat(result.t)}, p ${fmtP(result.p)}, 95% CI [${fmtStat(result.ci[0])}, ${fmtStat(result.ci[1])}]; Hedges’ g = ${fmtStat(result.hedgesG)} (pooled-SD standardized difference).`;
   }
   function viva(result) {
     if(result.method==='pearson')return [
       ['Why did you choose Pearson correlation?',`The selected variables (${result.x}, ${result.y}) are quantitative, and the research question concerns their linear association. I must also inspect the scatterplot and sampling assumptions.`],
-      ['What does the coefficient mean?',`The estimated sample correlation is ${fmtStat(result.r)}. Its sign indicates direction; its absolute size indicates the strength of the linear sample association.`],
+      ['What does the coefficient mean?',`Pearson’s r = ${fmtStat(result.r)} is itself the effect size. The observed r² is ${sharedPercent(result.rSquared)} shared linear variation, not a causal estimate.`],
       ['Does the p-value prove the hypothesis?',`No. The two-sided p-value (${result.p.toPrecision(3)}) measures compatibility with a null hypothesis of zero population correlation under model assumptions. It is not the probability that a hypothesis is true.`],
       ['Can you say one variable causes the other?','No. Correlation alone does not establish causation; confounding, measurement error and reverse direction are possible.'],
       ['Which limitations would you mention?',result.notes.join(' ')]
     ];
     return [
       ['Why use Welch rather than the conventional pooled t-test?','Welch does not require the two independent groups to have equal population variances. Independence and sensible study design are still needed.'],
-      ['What does the difference estimate?',`The estimated sample difference is ${fmtStat(result.diff)} points (${result.groups[0].name} minus ${result.groups[1].name}) in ${result.outcome}.`],
+      ['How large is the group difference?',`The raw difference is ${fmtStat(result.diff)} points (${result.groups[0].name} minus ${result.groups[1].name}) in ${result.outcome}. Hedges’ g = ${fmtStat(result.hedgesG)} expresses it in pooled SD units with small-sample correction; unequal SDs complicate the interpretation.`],
       ['What does the 95% confidence interval mean?',`The interval [${fmtStat(result.ci[0])}, ${fmtStat(result.ci[1])}] is calculated by a method intended to cover the true difference in 95% of repeated suitable samples. It is not a 95% probability assigned to this fixed parameter.`],
       ['Would a significant result prove the intervention caused the difference?','Not necessarily. Causal inference also depends on allocation, confounding and design.'],
       ['When is this the wrong test?','For repeated measurements on the same people, more than two independent groups, or outcomes that are not appropriately quantitative.']
     ];
   }
   function reportMarkdown(result,question) {
-    return `# Research Stats Coach — teaching report\n\n**Research question:** ${question||'(not provided)'}\n\n**Method:** ${result.method==='pearson'?'Pearson product-moment correlation':'Independent-samples Welch t-test'}\n\n**Complete observations:** ${result.n}. **Excluded incomplete rows:** ${result.excluded}.\n\n## Result (APA-style starting point)\n\n${apa(result)}\n\n## Study design and assumption checks that require human review\n\n${result.notes.map(n=>'- '+n).join('\n')}\n\n## Viva preparation\n\n${viva(result).map(([q,a])=>`**Q: ${q}**\n\nA: ${a}`).join('\n\n')}\n\n---\nThis teaching report is computed locally from supplied data using a restricted method set. It is not a clinical interpretation or a substitute for statistical supervision. No AI-generated statistical facts.\n`;
+    const conclusion=plainConclusion(result),checks=assumptionChecks(result);
+    const effect=result.method==='pearson'
+      ?`Pearson r = ${fmtStat(result.r)}, r² = ${result.rSquared.toFixed(5)} (${sharedPercent(result.rSquared)} sample shared linear variation).`
+      :`Hedges’ g = ${fmtStat(result.hedgesG)} (small-sample corrected pooled-SD standardized difference); raw mean difference = ${fmtStat(result.diff)} ${result.outcome} units.`;
+    return `# Research Stats Coach — teaching report\n\n**Research question:** ${question||'(not provided)'}\n\n**Method:** ${result.method==='pearson'?'Pearson product-moment correlation':'Independent-samples Welch t-test'}\n\n**Complete observations:** ${result.n}. **Excluded incomplete rows:** ${result.excluded}.\n\n## Plain-language conclusion (illustrative alpha = .05)\n\n**${conclusion.heading}**\n\n${conclusion.summary}\n\n${conclusion.effect}\n\n${conclusion.caution}\n\n## Result (APA-style starting point)\n\n${apa(result)}\n\n## Effect size\n\n${effect}\n\n## Assumptions: observational screens versus researcher's checks\n\n${checks.map(c=>`- [${c.status==='inspect'?'INSPECT':c.status==='observed'?'DESCRIPTIVE SCREEN':'REQUIRES HUMAN REVIEW'}] ${c.label}: ${c.detail}`).join('\n')}\n\n## Additional limitations\n\n${result.notes.map(n=>'- '+n).join('\n')}\n\n## Viva preparation\n\n${viva(result).map(([q,a])=>`**Q: ${q}**\n\nA: ${a}`).join('\n\n')}\n\n---\nThis teaching report is computed locally from supplied data using a restricted method set. It is not a clinical interpretation or a substitute for statistical supervision. No AI-generated statistical facts.\n`;
   }
-  return {csvParse,numeric,missing,summarizeColumns,pearson,welch,apa,viva,reportMarkdown,math:{twoSidedP,tCritical,mean,sd}};
+  return {csvParse,numeric,missing,summarizeColumns,pearson,welch,apa,viva,plainConclusion,assumptionChecks,reportMarkdown,math:{twoSidedP,tCritical,mean,sd}};
 });
+
 
 /* Synthetic data for demonstration only — not collected from students. */
 window.DemoCSV = "StudentID,Group,StudyHours,SelfEsteemScore,StressScore\nS001,Workshop,2.8,13.5,25.5\nS002,Comparison,1.1,15.7,21.5\nS003,Workshop,2.3,29.5,11.5\nS004,Comparison,3.0,21.4,8.6\nS005,Workshop,3.0,24.3,16.5\nS006,Comparison,0.7,13.8,20.1\nS007,Workshop,1.4,21.1,11.5\nS008,Comparison,4.3,21.5,22.9\nS009,Workshop,1.2,18.8,13.9\nS010,Comparison,3.0,15.9,18.1\nS011,Workshop,1.0,18.5,15.9\nS012,Comparison,4.1,16.1,23.1\nS013,Workshop,2.6,22.4,13.8\nS014,Comparison,3.0,15.4,12.6\nS015,Workshop,0.9,15.7,19.2\nS016,Comparison,3.1,17.9,23.3\nS017,Workshop,0.5,19.7,16.1\nS018,Comparison,1.3,22.0,10.1\nS019,Workshop,1.5,17.2,16.8\nS020,Comparison,2.5,15.5,19.5\nS021,Workshop,3.8,25.1,15.0\nS022,Comparison,3.0,13.5,19.1\nS023,Workshop,3.1,23.7,11.0\nS024,Comparison,1.3,22.5,9.1\nS025,Workshop,1.0,16.8,17.7\nS026,Comparison,1.1,18.1,13.8\nS027,Workshop,3.8,12.8,29.0\nS028,Comparison,3.4,22.3,6.4\nS029,Workshop,1.6,18.7,10.0\nS030,Comparison,2.5,16.2,24.0\nS031,Workshop,2.9,19.9,16.7\nS032,Comparison,2.6,13.0,24.0\nS033,Workshop,1.9,24.1,19.4\nS034,Comparison,2.0,27.4,8.7\nS035,Workshop,2.1,11.2,26.1\nS036,Comparison,3.0,15.8,14.9\nS037,Workshop,2.0,24.5,15.0\nS038,Comparison,1.5,15.4,9.4\nS039,Workshop,4.7,21.9,11.8\nS040,Comparison,2.9,22.0,12.2\nS041,Workshop,1.9,20.9,10.8\nS042,Comparison,3.6,12.0,18.3\nS043,Workshop,2.1,18.2,23.3\nS044,Comparison,1.5,21.1,16.1\nS045,Workshop,3.3,15.6,19.3\nS046,Comparison,0.5,18.0,15.4\nS047,Workshop,3.6,17.5,20.3\nS048,Comparison,3.4,19.6,11.6\nS049,Workshop,4.1,19.0,18.8\nS050,Comparison,2.7,14.4,17.0\nS051,Workshop,3.4,21.7,14.2\nS052,Comparison,2.2,21.9,11.2\nS053,Workshop,1.7,24.3,7.5\nS054,Comparison,4.7,9.8,17.3\nS055,Workshop,4.5,28.7,7.8\nS056,Comparison,2.2,20.2,16.5\nS057,Workshop,4.1,24.9,5.6\nS058,Comparison,0.5,19.3,15.5\nS059,Workshop,2.8,29.9,12.5\nS060,Comparison,1.9,18.8,20.0\nS061,Workshop,1.6,21.7,17.4\nS062,Comparison,1.4,15.8,22.7\nS063,Workshop,4.9,17.1,19.1\nS064,Comparison,4.9,25.8,7.5\nS065,Workshop,2.9,15.2,16.2\nS066,Comparison,3.1,22.2,17.1\nS067,Workshop,2.4,13.1,12.5\nS068,Comparison,1.7,20.5,14.8\nS069,Workshop,0.5,21.6,18.2\nS070,Comparison,3.3,23.5,20.4\nS071,Workshop,2.5,17.9,16.4\nS072,Comparison,3.4,26.7,12.4\n";
+
 
 /* Browser-local educational pilot. Never sends uploaded content anywhere. */
 (function(){
@@ -310,16 +381,37 @@ window.DemoCSV = "StudentID,Group,StudyHours,SelfEsteemScore,StressScore\nS001,W
    if(demo)body.append(el('div','demo-banner','⚑ SYNTHETIC EXAMPLE — not real participant data. Do not submit as research.'));
    const stats=el('div','result-pulse');
    if(r.method==='pearson'){
-     stats.append(numberCard('Correlation r',S.apa(r).match(/r\(\d+\) = ([^,]+)/)?.[1]||r.r.toFixed(2)),numberCard('p-value',r.p<.001?'< .001':r.p.toFixed(3)),numberCard('Complete pairs',r.n,String(r.excluded)+' excluded'));
+     const percent=100*r.rSquared;
+     const percentText=percent<.001?'< 0.001%':percent<.01?percent.toFixed(3)+'%':percent<.1?percent.toFixed(2)+'%':percent.toFixed(1)+'%';
+     stats.append(numberCard('Correlation r',r.r.toFixed(2)),numberCard('p-value',r.p<.001?'< .001':r.p.toFixed(3)),numberCard('Complete pairs',r.n,String(r.excluded)+' excluded'),numberCard('Shared variation r²',percentText,'Descriptive, not causal'));
    }else{
-     stats.append(numberCard('Mean difference',r.diff.toFixed(2)),numberCard('p-value',r.p<.001?'< .001':r.p.toFixed(3)),numberCard('Valid sample',r.n,String(r.excluded)+' excluded'));
+     stats.append(numberCard('Mean difference',r.diff.toFixed(2)),numberCard('p-value',r.p<.001?'< .001':r.p.toFixed(3)),numberCard('Valid sample',r.n,String(r.excluded)+' excluded'),numberCard('Hedges’ g',r.hedgesG.toFixed(2),'Standardized difference'));
    }
    body.append(stats);
+   const c=S.plainConclusion(r),interpreted=el('section','interpretation-panel');
+   interpreted.append(el('div','interpretation-eyebrow','PLAIN-LANGUAGE INTERPRETATION'));
+   interpreted.append(el('h4','',c.heading));
+   interpreted.append(el('p','interpretation-summary',c.summary));
+   interpreted.append(el('p','interpretation-effect',c.effect));
+   interpreted.append(el('p','interpretation-caution',c.caution));
+   body.append(interpreted);
    const plot=el('div','plot-panel');plot.append(el('h4','',r.method==='pearson'?'Observed pairwise values':'Independent group observations'));
    if(r.method==='pearson')drawScatter(plot,r);else drawWelch(plot,r);
    body.append(plot);
    const apaSection=el('section','subsection');apaSection.append(el('h4','','APA-style result — review before submission'));apaSection.append(el('p','report-text',S.apa(r)));body.append(apaSection);
-   const checks=el('section','subsection');checks.append(el('h4','','Check these assumptions and limitations'));const ul=el('ul');r.notes.forEach(n=>ul.append(el('li','',n)));checks.append(ul);body.append(checks);
+   const checks=el('section','subsection');checks.append(el('h4','','Assumption checks — what remains uncertain'));
+   checks.append(el('p','checks-intro','These are descriptive data screens and design reminders, NOT automated approval of assumptions. Review flagged cases and confirm the study design.'));
+   const checklist=el('div','assumption-list');
+   S.assumptionChecks(r).forEach(c=>{
+     const item=el('div','assumption-item');
+     const heading=el('div','assumption-head');
+     const status=el('span','assumption-status '+c.status,c.status==='inspect'?'Inspect':c.status==='observed'?'Data screen':'Human review');
+     heading.append(el('strong','',c.label),status);
+     item.append(heading,el('p','',c.detail));checklist.append(item);
+   });
+   checks.append(checklist);
+   const details=el('details','extra-notes');details.append(el('summary','','More method limitations'));
+   const ul=el('ul');r.notes.forEach(n=>ul.append(el('li','',n)));details.append(ul);checks.append(details);body.append(checks);
    const viva=el('section','subsection');viva.append(el('h4','','Practice for your viva'));const faq=el('div','viva-list');
    S.viva(r).forEach(([q,a])=>{const detail=el('details');detail.append(el('summary','',q),el('p','',a));faq.append(detail);});viva.append(faq);body.append(viva);
    const buttons=el('div','report-actions');
